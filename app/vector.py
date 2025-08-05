@@ -1,4 +1,9 @@
-"""Vector store synchronization logic."""
+"""Vector store synchronization logic.
+
+This module provides the core function for synchronizing the vector store
+with the PDF directory. It is designed to be run at application startup to
+ensure the vector store is up-to-date.
+"""
 
 from config import Config
 from file_manager import FileManager
@@ -6,10 +11,11 @@ from vector_store import VectorStoreManager
 
 
 def synchronize_vector_store():
-    """
-    Synchronizes the vector store with the PDF directory.
-    - Adds new or modified PDFs.
-    - Removes deleted PDFs.
+    """Synchronizes the vector store with the PDF directory.
+
+    This function scans the PDF directory for new, modified, or deleted
+    files and updates the vector store accordingly. It ensures that the
+    RAG system's knowledge base is current.
     """
     print("Synchronizing vector store with PDF directory...")
     Config.create_directories()
@@ -44,4 +50,3 @@ def synchronize_vector_store():
 
     current_pdfs = list(Config.PDF_DIRECTORY.glob("*.pdf"))
     print(f"\nVector store contains {len(current_pdfs)} PDF files.")
-

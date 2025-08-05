@@ -1,4 +1,9 @@
-"""Vector store operations for PDF documents."""
+"""Manages vector store operations for PDF documents.
+
+This module provides the `VectorStoreManager` class, which handles the
+entire lifecycle of PDF documents in the vector store, including embedding,
+chunking, adding, and removing documents.
+"""
 
 from pathlib import Path
 from typing import Dict, List, Set
@@ -13,9 +18,21 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 class VectorStoreManager:
-    """Manages vector store operations."""
+    """Handles all vector store operations for PDF documents.
+
+    This class is responsible for initializing the embedding model and vector
+    store, processing and adding new PDFs, removing outdated documents, and
+    providing a retriever for querying.
+
+    Attributes:
+        embeddings: The sentence-transformer model for creating embeddings.
+        vector_store: The ChromaDB instance for storing document vectors.
+        text_splitter: The splitter for dividing documents into chunks.
+        file_manager: An instance of `FileManager` for metadata handling.
+    """
 
     def __init__(self) -> None:
+        """Initializes the VectorStoreManager."""
         self.embeddings = HuggingFaceEndpointEmbeddings(
             model=Config.EMBEDDING_MODEL,
             huggingfacehub_api_token=Config.HUGGINGFACE_API_KEY,
@@ -37,7 +54,11 @@ class VectorStoreManager:
         self.file_manager = FileManager()
 
     def remove_deleted_files(self, deleted_files: Set[str]) -> None:
-        """Remove chunks from deleted files from the vector store."""
+        """Removes document chunks from the vector store for deleted files.
+
+        Args:
+            deleted_files: A set of file paths for the deleted files.
+        """
         if not deleted_files:
             return
 
@@ -48,24 +69,28 @@ class VectorStoreManager:
             filename = Path(deleted_file).name
             print(f"  - {filename}")
 
-        # Get all documents from vector store
         all_docs = self.vector_store.get()
 
         if not all_docs or not all_docs["metadatas"]:
             return
 
-        # Find IDs of documents from deleted files
         ids_to_delete = self._find_ids_by_filenames(
             all_docs, {Path(f).name for f in deleted_files}
         )
 
-        # Delete the documents
         if ids_to_delete:
             self.vector_store.delete(ids=ids_to_delete)
             print(f"Removed {len(ids_to_delete)} chunks from deleted files")
 
     def remove_old_chunks(self, filename: str) -> None:
-        """Remove old chunks for a modified file."""
+        """Removes all document chunks for a specific file.
+
+        This is used to clear out old versions of a file before adding the
+        updated version.
+
+        Args:
+            filename: The name of the file whose chunks should be removed.
+        """
         print(f"Removing old chunks for modified file: {filename}")
 
         all_docs = self.vector_store.get()
@@ -79,46 +104,68 @@ class VectorStoreManager:
             print(f"Removed {len(ids_to_delete)} old chunks")
 
     def process_and_add_pdfs(
-        self, pdf_paths: List[Path], processed_files: Dict[str, FileInfo]
+        self,
+        pdf_paths: List[Path],
+        processed_files: Dict[str, FileInfo],
     ) -> None:
-        """Process and add PDF documents to vector store."""
+        """Processes and adds a list of PDF files to the vector store.
+
+        This method handles loading, splitting, and embedding the documents,
+        and then updates the tracking metadata.
+
+        Args:
+            pdf_paths: A list of paths to the PDF files to process.
+            processed_files: The dictionary of processed file metadata, which
+                will be updated.
+        """
         documents = []
 
         for pdf_path in pdf_paths:
             file_key = str(pdf_path)
 
-            # If this is a modified file, remove old chunks first
             if file_key in processed_files:
                 self.remove_old_chunks(pdf_path.name)
 
             print(f"Processing: {pdf_path.name}")
 
-            # Load and process PDF
             pdf_documents = self._load_pdf(pdf_path)
             documents.extend(pdf_documents)
 
-            # Update processed files tracking
             processed_files[file_key] = self.file_manager.get_file_info(
                 pdf_path
             )
 
-        # Split and add documents
         self._split_and_add_documents(documents)
 
-        # Save updated processed files list
         self.file_manager.save_processed_files(processed_files)
         print("Documents updated successfully!")
 
     def get_retriever(self):
-        """Get retriever for the vector store."""
+        """Returns a retriever for the vector store.
+
+        The retriever is configured to fetch a specific number of documents.
+
+        Returns:
+            A retriever object for querying the vector store.
+        """
         return self.vector_store.as_retriever(
             search_kwargs={"k": Config.RETRIEVAL_K}
         )
 
     def _find_ids_by_filenames(
-        self, all_docs: dict, filenames: Set[str]
+        self,
+        all_docs: dict,
+        filenames: Set[str],
     ) -> List[str]:
-        """Find document IDs by filenames."""
+        """Finds the internal document IDs associated with a set of filenames.
+
+        Args:
+            all_docs: The dictionary of all documents from the vector store.
+            filenames: A set of filenames to search for.
+
+        Returns:
+            A list of document IDs to be deleted.
+        """
         ids_to_delete = []
 
         for i, metadata in enumerate(all_docs["metadatas"]):
@@ -132,11 +179,17 @@ class VectorStoreManager:
         return ids_to_delete
 
     def _load_pdf(self, pdf_path: Path) -> List[Document]:
-        """Load a PDF file and add metadata."""
+        """Loads a PDF file and enriches its documents with metadata.
+
+        Args:
+            pdf_path: The path to the PDF file.
+
+        Returns:
+            A list of `Document` objects, each with added metadata.
+        """
         loader = PyPDFLoader(str(pdf_path))
         pdf_documents = loader.load()
 
-        # Add source filename to metadata
         for doc in pdf_documents:
             doc.metadata["source_file"] = pdf_path.name
             doc.metadata["file_path"] = str(pdf_path)
@@ -144,7 +197,11 @@ class VectorStoreManager:
         return pdf_documents
 
     def _split_and_add_documents(self, documents: List[Document]) -> None:
-        """Split documents into chunks and add to vector store."""
+        """Splits documents into chunks and adds them to the vector store.
+
+        Args:
+            documents: A list of documents to be split and added.
+        """
         print("Splitting documents into chunks...")
         split_documents = self.text_splitter.split_documents(documents)
         print(f"Created {len(split_documents)} document chunks")
