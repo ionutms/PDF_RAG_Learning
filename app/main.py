@@ -6,7 +6,8 @@ from config import CHAT_TEMPLATE, Config
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
-from vector import retriever
+from vector import synchronize_vector_store
+from vector_store import VectorStoreManager
 
 
 class PDFChatBot:
@@ -20,7 +21,10 @@ class PDFChatBot:
 
         self.prompt = ChatPromptTemplate.from_template(CHAT_TEMPLATE)
         self.chain = self.prompt | self.model
-        self.retriever = retriever
+
+        # Initialize vector store manager and get retriever
+        vector_manager = VectorStoreManager()
+        self.retriever = vector_manager.get_retriever()
 
     def format_docs(self, docs: List[Document]) -> str:
         """Format retrieved documents for the prompt."""
@@ -29,7 +33,13 @@ class PDFChatBot:
             source = doc.metadata.get("source_file", "Unknown")
             page = doc.metadata.get("page", "Unknown")
             content = doc.page_content.strip()
-            formatted.append(f"[Source: {source}, Page: {page}]\n{content}")
+
+            # Increment page number for display
+            page_display = page + 1 if isinstance(page, int) else "Unknown"
+
+            formatted.append(
+                f"[Source: {source}, Page: {page_display}]\n{content}"
+            )
         return "\n\n".join(formatted)
 
     def get_unique_sources(self, docs: List[Document]) -> List[str]:
@@ -38,7 +48,11 @@ class PDFChatBot:
         for doc in docs:
             source_file = doc.metadata.get("source_file", "Unknown")
             page = doc.metadata.get("page", "Unknown")
-            sources.add(f"- {source_file} (Page {page})")
+
+            # Increment page number for display
+            page_display = page + 1 if isinstance(page, int) else "Unknown"
+
+            sources.add(f"- {source_file} (Page {page_display})")
         return sorted(sources)
 
     def answer_question(self, question: str) -> tuple[str, List[str]]:
@@ -76,5 +90,9 @@ class PDFChatBot:
 
 
 if __name__ == "__main__":
+    # Synchronize the vector store at startup
+    synchronize_vector_store()
+
+    # Start the chatbot
     chatbot = PDFChatBot()
     chatbot.run_chat_loop()
