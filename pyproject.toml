@@ -1,0 +1,15 @@
+[project]
+name = "pdf-rag-learning"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain>=0.3.27",
+    "langchain-chroma>=0.2.5",
+    "langchain-community>=0.3.27",
+    "langchain-groq>=0.3.6",
+    "langchain-huggingface>=0.3.1",
+    "pypdf>=5.9.0",
+    "python-dotenv>=1.1.1",
+]
