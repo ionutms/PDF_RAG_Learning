@@ -1,4 +1,10 @@
-"""Main application for PDF question answering."""
+"""
+Main application for the PDF Question Answering system.
+
+This module initializes and runs a chatbot that answers questions based on
+a collection of PDF documents. It uses a vector store for document retrieval
+and a large language model to generate answers.
+"""
 
 from typing import List
 
@@ -11,9 +17,21 @@ from vector_store import VectorStoreManager
 
 
 class PDFChatBot:
-    """PDF question answering chatbot."""
+    """
+    A chatbot that answers questions based on a collection of PDF documents.
+
+    This class encapsulates the logic for retrieving relevant document
+    snippets from a vector store and using a large language model to generate
+    answers to user questions.
+    """
 
     def __init__(self) -> None:
+        """
+        Initialize the PDFChatBot.
+
+        This method sets up the language model, the prompt template, and the
+        retriever for the chatbot.
+        """
         self.model = ChatGroq(
             groq_api_key=Config.GROQ_API_KEY,
             model_name=Config.LLM_MODEL,
@@ -27,7 +45,16 @@ class PDFChatBot:
         self.retriever = vector_manager.get_retriever()
 
     def format_docs(self, docs: List[Document]) -> str:
-        """Format retrieved documents for the prompt."""
+        """
+        Format a list of documents into a single string.
+
+        Args:
+            docs: A list of documents to be formatted.
+
+        Returns:
+            A string containing the formatted documents, separated by
+            double newlines.
+        """
         formatted = []
         for doc in docs:
             source = doc.metadata.get("source_file", "Unknown")
@@ -43,7 +70,15 @@ class PDFChatBot:
         return "\n\n".join(formatted)
 
     def get_unique_sources(self, docs: List[Document]) -> List[str]:
-        """Get unique sources from retrieved documents."""
+        """
+        Extract unique source information from a list of documents.
+
+        Args:
+            docs: A list of documents from which to extract sources.
+
+        Returns:
+            A sorted list of unique source strings.
+        """
         sources = set()
         for doc in docs:
             source_file = doc.metadata.get("source_file", "Unknown")
@@ -56,7 +91,15 @@ class PDFChatBot:
         return sorted(sources)
 
     def answer_question(self, question: str) -> tuple[str, List[str]]:
-        """Answer a question based on PDF content."""
+        """
+        Answer a question based on the content of the PDF documents.
+
+        Args:
+            question: The question to be answered.
+
+        Returns:
+            A tuple containing the answer and a list of sources.
+        """
         # Retrieve relevant documents
         docs = self.retriever.invoke(question)
         context = self.format_docs(docs)
@@ -70,7 +113,12 @@ class PDFChatBot:
         return result.content, sources
 
     def run_chat_loop(self) -> None:
-        """Run the main chat loop."""
+        """
+        Run the main chat loop for the PDF Question Answering system.
+
+        This method continuously prompts the user for questions and displays
+        the answers until the user decides to quit.
+        """
         print("PDF Question Answering System")
         print("Type 'q' to quit")
 
@@ -82,10 +130,15 @@ class PDFChatBot:
             if question.lower() == "q":
                 break
 
-            answer, _ = self.answer_question(question)
+            answer, sources = self.answer_question(question)
 
             print("Answer:")
             print(answer)
+
+            if sources:
+                print("\nSources:")
+                for source in sources:
+                    print(source)
             print("\n" + "-" * 80)
 
 
