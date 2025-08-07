@@ -1,9 +1,9 @@
-"""Manages vector store operations for PDF documents.
+"""Manages vector store operations for PDF documents with semantic chunking.
 
 This module provides the `VectorStoreManager` class, which handles the
 entire lifecycle of PDF documents in the vector store, including embedding,
-chunking, adding, and removing documents using pymupdf4llm for markdown
-extraction.
+semantic chunking, adding, and removing documents using pymupdf4llm for
+markdown extraction and semantic text splitting for intelligent chunking.
 """
 
 from pathlib import Path
@@ -15,27 +15,27 @@ from file_manager import FileManager
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
-from langchain_text_splitters import MarkdownTextSplitter
+from semantic_splitter import SemanticTextSplitter
 
 
 class VectorStoreManager:
-    """Handles all vector store operations for PDF documents.
+    """Handles all vector store operations for PDF documents with chunking.
 
     This class is responsible for initializing the embedding model and vector
     store, processing and adding new PDFs using pymupdf4llm for markdown
-    extraction, removing outdated documents, and providing a retriever for
-    querying.
+    extraction, semantic chunking for intelligent text splitting, removing
+    outdated documents, and providing a retriever for querying.
 
     Attributes:
         embeddings: The sentence-transformer model for creating embeddings.
         vector_store: The ChromaDB instance for storing document vectors.
-        text_splitter: The markdown splitter for dividing documents into
-            chunks.
+        text_splitter: The semantic splitter for dividing documents into
+            contextually coherent chunks.
         file_manager: An instance of `FileManager` for metadata handling.
     """
 
     def __init__(self) -> None:
-        """Initializes the VectorStoreManager."""
+        """Initializes the VectorStoreManager with semantic chunking."""
         self.embeddings = HuggingFaceEndpointEmbeddings(
             model=Config.EMBEDDING_MODEL,
             huggingfacehub_api_token=Config.HUGGINGFACE_API_KEY,
@@ -47,9 +47,15 @@ class VectorStoreManager:
             embedding_function=self.embeddings,
         )
 
-        self.text_splitter = MarkdownTextSplitter(
-            chunk_size=Config.CHUNK_SIZE,
-            chunk_overlap=Config.CHUNK_OVERLAP,
+        # Initialize semantic text splitter
+        self.text_splitter = SemanticTextSplitter(
+            embeddings=self.embeddings,
+            similarity_threshold=getattr(
+                Config, "SEMANTIC_SIMILARITY_THRESHOLD", 0.7
+            ),
+            min_chunk_size=getattr(Config, "MIN_CHUNK_SIZE", 200),
+            max_chunk_size=Config.CHUNK_SIZE,
+            sentence_overlap=getattr(Config, "SENTENCE_OVERLAP", 1),
         )
 
         self.file_manager = FileManager()
@@ -111,8 +117,9 @@ class VectorStoreManager:
     ) -> None:
         """Processes and adds a list of PDF files to the vector store.
 
-        This method handles loading, converting to markdown, splitting, and
-        embedding the documents, then updates the tracking metadata.
+        This method handles loading, converting to markdown,
+        semantic splitting, and embedding the documents,
+        then updates the tracking metadata.
 
         Args:
             pdf_paths: A list of paths to the PDF files to process.
@@ -249,9 +256,30 @@ class VectorStoreManager:
         Args:
             documents: A list of documents to be split and added.
         """
-        print("Splitting markdown documents into chunks...")
+        print("Splitting markdown documents into semantic chunks...")
+
+        # Use semantic splitter instead of fixed-size splitter
         split_documents = self.text_splitter.split_documents(documents)
-        print(f"Created {len(split_documents)} document chunks")
+
+        # Add chunking strategy info to metadata
+        for doc in split_documents:
+            doc.metadata["chunking_strategy"] = "semantic"
+            doc.metadata["similarity_threshold"] = (
+                self.text_splitter.similarity_threshold
+            )
+
+        print(f"Created {len(split_documents)} semantic document chunks")
+
+        # Show some statistics about chunk sizes
+        chunk_sizes = [len(doc.page_content) for doc in split_documents]
+        if chunk_sizes:
+            avg_size = sum(chunk_sizes) / len(chunk_sizes)
+            min_size = min(chunk_sizes)
+            max_size = max(chunk_sizes)
+            print(
+                "Chunk size stats - "
+                f"Min: {min_size}, Max: {max_size}, Avg: {avg_size:.0f}"
+            )
 
         print("Adding new/updated documents to vector store...")
         self.vector_store.add_documents(documents=split_documents)

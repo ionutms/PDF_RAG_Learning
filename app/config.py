@@ -1,8 +1,9 @@
-"""Configuration settings for the PDF RAG system.
+"""Configuration settings for the PDF RAG system with semantic chunking.
 
 This module defines configuration constants, file paths, and model settings
 for the PDF question-answering application. It also includes a utility
-function to create necessary directories.
+function to create necessary directories and new parameters for semantic
+chunking.
 """
 
 import os
@@ -38,10 +39,25 @@ class Config:
     DB_LOCATION = SCRIPT_DIR.joinpath("chroma_DB/chroma_langchain_db")
     METADATA_FILE = SCRIPT_DIR.joinpath("chroma_DB/processed_files.json")
 
-    # Text processing
-    CHUNK_SIZE = 1000
-    CHUNK_OVERLAP = 200
+    # Text processing - Standard chunking
+    CHUNK_SIZE = 1500  # Increased for semantic chunking as max size
+    CHUNK_OVERLAP = (
+        200  # Kept for compatibility but not used in semantic chunking
+    )
     RETRIEVAL_K = 20
+
+    # Semantic chunking parameters
+    SEMANTIC_SIMILARITY_THRESHOLD = (
+        0.7  # Higher = more strict semantic grouping (0.0-1.0)
+    )
+    MIN_CHUNK_SIZE = 200  # Minimum chunk size in characters
+    SENTENCE_OVERLAP = 1  # Number of sentences to overlap between chunks
+
+    # Alternative thresholds you can experiment with:
+    # More strict - creates smaller, more focused chunks
+    # SEMANTIC_SIMILARITY_THRESHOLD = 0.75
+    # Less strict - creates larger, broader chunks
+    # SEMANTIC_SIMILARITY_THRESHOLD = 0.65
 
     # PyMuPDF4LLM settings optimized for datasheets
     PYMUPDF_EXTRACT_OPTIONS = {
@@ -76,6 +92,17 @@ class Config:
         cls.PDF_DIRECTORY.mkdir(parents=True, exist_ok=True)
         cls.DB_LOCATION.parent.mkdir(parents=True, exist_ok=True)
         cls.METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    @classmethod
+    def print_semantic_config(cls) -> None:
+        """Print current semantic chunking configuration for debugging."""
+        print("=== Semantic Chunking Configuration ===")
+        print(f"Similarity Threshold: {cls.SEMANTIC_SIMILARITY_THRESHOLD}")
+        print(f"Max Chunk Size: {cls.CHUNK_SIZE}")
+        print(f"Min Chunk Size: {cls.MIN_CHUNK_SIZE}")
+        print(f"Sentence Overlap: {cls.SENTENCE_OVERLAP}")
+        print(f"Embedding Model: {cls.EMBEDDING_MODEL}")
+        print("=" * 40)
 
 
 # Chat template
