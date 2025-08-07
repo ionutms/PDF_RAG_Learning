@@ -5,14 +5,19 @@ a collection of PDF documents. It uses a vector store for document retrieval
 and a large language model to generate answers.
 """
 
+import re
 from typing import List
 
+from colorama import Fore, Style, init
 from config import CHAT_TEMPLATE, Config
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from vector import synchronize_vector_store
 from vector_store import VectorStoreManager
+
+# Initialize colorama for cross-platform colored output
+init(autoreset=True)
 
 
 class PDFChatBot:
@@ -65,16 +70,78 @@ class PDFChatBot:
             )
         return "\n\n".join(formatted)
 
+    def format_docs_colored(self, docs: List[Document]) -> str:
+        """Format documents with colored output for console display.
+
+        Args:
+            docs: A list of documents to be formatted.
+
+        Returns:
+            A string with colored formatting for console display.
+        """
+        formatted = []
+        # Use cyan for all context chunks
+        color = Fore.CYAN
+
+        for doc in docs:
+            source = doc.metadata.get("source_file", "Unknown")
+            page = doc.metadata.get("page", "Unknown")
+            content = doc.page_content.strip()
+
+            # Clean up excessive whitespace and newlines
+            content = self._clean_content(content)
+
+            # Increment page number for display
+            page_display = page + 1 if isinstance(page, int) else "Unknown"
+
+            formatted_chunk = (
+                f"{color}[Source: {source}, "
+                f"Page: {page_display}]{Style.RESET_ALL}\n"
+                f"{color}{content}{Style.RESET_ALL}"
+            )
+            formatted.append(formatted_chunk)
+
+        # Join chunks with delimiter
+        delimiter = f"\n{Fore.YELLOW}{'*' * 80}{Style.RESET_ALL}\n"
+        return delimiter.join(formatted)
+
+    def _clean_content(self, content: str) -> str:
+        """Clean excessive whitespace and newlines from content.
+
+        Args:
+            content: The raw content string to clean
+
+        Returns:
+            Cleaned content string
+        """
+        # Replace multiple consecutive newlines with maximum of 2
+        content = re.sub(r"\n{3,}", "\n\n", content)
+
+        # Replace multiple consecutive spaces with single space
+        content = re.sub(r" {2,}", " ", content)
+
+        # Remove trailing whitespace from each line
+        content = "\n".join(line.rstrip() for line in content.split("\n"))
+
+        # Remove leading/trailing whitespace from entire content
+        content = content.strip()
+
+        return content
+
     def get_unique_sources(self, docs: List[Document]) -> List[str]:
         """Extract unique source information from a list of documents.
+
+        Preserves the original retrieval order while removing duplicates.
 
         Args:
             docs: A list of documents from which to extract sources.
 
         Returns:
-            A sorted list of unique source strings.
+            A list of unique source strings in retrieval order.
         """
-        sources = set()
+        seen_sources = set()
+        unique_sources = []
+
         for doc in docs:
             source_file = doc.metadata.get("source_file", "Unknown")
             page = doc.metadata.get("page", "Unknown")
@@ -82,8 +149,14 @@ class PDFChatBot:
             # Increment page number for display
             page_display = page + 1 if isinstance(page, int) else "Unknown"
 
-            sources.add(f"- {source_file} (Page {page_display})")
-        return sorted(sources)
+            source_str = f"- {source_file} (Page {page_display})"
+
+            # Only add if we haven't seen this source before
+            if source_str not in seen_sources:
+                seen_sources.add(source_str)
+                unique_sources.append(source_str)
+
+        return unique_sources
 
     def answer_question(self, question: str) -> tuple[str, List[str]]:
         """Answer a question based on the content of the PDF documents.
@@ -96,6 +169,8 @@ class PDFChatBot:
         """
         # Retrieve relevant documents
         docs = self.retriever.invoke(question)
+
+        # Format context for LLM (plain text)
         context = self.format_docs(docs)
 
         # Generate response
@@ -104,7 +179,7 @@ class PDFChatBot:
         # Get sources
         sources = self.get_unique_sources(docs)
 
-        return result.content, sources
+        return result.content, sources, docs
 
     def run_chat_loop(self) -> None:
         """Run the main chat loop for the PDF Question Answering system.
@@ -112,26 +187,53 @@ class PDFChatBot:
         This method continuously prompts the user for questions and displays
         the answers until the user decides to quit.
         """
-        print("PDF Question Answering System")
-        print("Type 'q' to quit")
+        print(f"{Fore.BLUE}PDF Question Answering System{Style.RESET_ALL}")
+        print(
+            f"{Fore.YELLOW}Type 'q' to quit, 'context' to show last "
+            f"retrieved context{Style.RESET_ALL}"
+        )
+
+        last_docs = []
 
         while True:
             print("\n" + "-" * 80)
-            question = input("Ask your question about the PDFs (q to quit): ")
+            question = input(
+                f"{Fore.GREEN}Ask your question about the PDFs "
+                f"(q to quit): {Style.RESET_ALL}"
+            )
             print()
 
             if question.lower() == "q":
                 break
 
-            answer, sources = self.answer_question(question)
+            if question.lower() == "context":
+                if last_docs:
+                    print(
+                        f"{Fore.BLUE}Last Retrieved Context:{Style.RESET_ALL}"
+                    )
+                    print(self.format_docs_colored(last_docs))
+                else:
+                    print(
+                        f"{Fore.RED}No context available. "
+                        f"Ask a question first.{Style.RESET_ALL}"
+                    )
+                continue
 
-            print("Answer:")
+            answer, sources, docs = self.answer_question(question)
+            last_docs = docs
+
+            print(f"{Fore.BLUE}Answer:{Style.RESET_ALL}")
             print(answer)
 
             if sources:
-                print("\nSources:")
+                print(f"\n{Fore.BLUE}Sources:{Style.RESET_ALL}")
                 for source in sources:
-                    print(source)
+                    print(f"{Fore.CYAN}{source}{Style.RESET_ALL}")
+
+            # Show retrieved context in color
+            print(f"\n{Fore.BLUE}Retrieved Context:{Style.RESET_ALL}")
+            print(self.format_docs_colored(docs))
+
             print("\n" + "-" * 80)
 
 

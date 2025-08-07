@@ -2,32 +2,35 @@
 
 This module provides the `VectorStoreManager` class, which handles the
 entire lifecycle of PDF documents in the vector store, including embedding,
-chunking, adding, and removing documents.
+chunking, adding, and removing documents using pymupdf4llm for markdown
+extraction.
 """
 
 from pathlib import Path
 from typing import Dict, List, Set
 
+import pymupdf4llm
 from config import Config, FileInfo
 from file_manager import FileManager
 from langchain_chroma import Chroma
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitters import MarkdownTextSplitter
 
 
 class VectorStoreManager:
     """Handles all vector store operations for PDF documents.
 
     This class is responsible for initializing the embedding model and vector
-    store, processing and adding new PDFs, removing outdated documents, and
-    providing a retriever for querying.
+    store, processing and adding new PDFs using pymupdf4llm for markdown
+    extraction, removing outdated documents, and providing a retriever for
+    querying.
 
     Attributes:
         embeddings: The sentence-transformer model for creating embeddings.
         vector_store: The ChromaDB instance for storing document vectors.
-        text_splitter: The splitter for dividing documents into chunks.
+        text_splitter: The markdown splitter for dividing documents into
+            chunks.
         file_manager: An instance of `FileManager` for metadata handling.
     """
 
@@ -44,11 +47,9 @@ class VectorStoreManager:
             embedding_function=self.embeddings,
         )
 
-        self.text_splitter = RecursiveCharacterTextSplitter(
+        self.text_splitter = MarkdownTextSplitter(
             chunk_size=Config.CHUNK_SIZE,
             chunk_overlap=Config.CHUNK_OVERLAP,
-            length_function=len,
-            separators=["\n\n", "\n", " ", ""],
         )
 
         self.file_manager = FileManager()
@@ -110,8 +111,8 @@ class VectorStoreManager:
     ) -> None:
         """Processes and adds a list of PDF files to the vector store.
 
-        This method handles loading, splitting, and embedding the documents,
-        and then updates the tracking metadata.
+        This method handles loading, converting to markdown, splitting, and
+        embedding the documents, then updates the tracking metadata.
 
         Args:
             pdf_paths: A list of paths to the PDF files to process.
@@ -128,7 +129,7 @@ class VectorStoreManager:
 
             print(f"Processing: {pdf_path.name}")
 
-            pdf_documents = self._load_pdf(pdf_path)
+            pdf_documents = self._load_pdf_as_markdown(pdf_path)
             documents.extend(pdf_documents)
 
             processed_files[file_key] = self.file_manager.get_file_info(
@@ -157,7 +158,7 @@ class VectorStoreManager:
         all_docs: dict,
         filenames: Set[str],
     ) -> List[str]:
-        """Finds the internal document IDs associated with a set of filenames.
+        """Finds the internal document IDs associated with filenames.
 
         Args:
             all_docs: The dictionary of all documents from the vector store.
@@ -178,23 +179,69 @@ class VectorStoreManager:
 
         return ids_to_delete
 
-    def _load_pdf(self, pdf_path: Path) -> List[Document]:
-        """Loads a PDF file and enriches its documents with metadata.
+    def _load_pdf_as_markdown(self, pdf_path: Path) -> List[Document]:
+        """Loads a PDF file and converts it to markdown using pymupdf4llm.
 
         Args:
             pdf_path: The path to the PDF file.
 
         Returns:
-            A list of `Document` objects, each with added metadata.
+            A list of `Document` objects, each representing a page with
+            markdown content and metadata.
         """
-        loader = PyPDFLoader(str(pdf_path))
-        pdf_documents = loader.load()
+        # Extract markdown from PDF using pymupdf4llm
+        md_result = pymupdf4llm.to_markdown(
+            str(pdf_path), **Config.PYMUPDF_EXTRACT_OPTIONS
+        )
 
-        for doc in pdf_documents:
-            doc.metadata["source_file"] = pdf_path.name
-            doc.metadata["file_path"] = str(pdf_path)
+        documents = []
 
-        return pdf_documents
+        # Handle both list (page_chunks=True) and string (page_chunks=False)
+        if isinstance(md_result, list):
+            # page_chunks=True returns a list of page dictionaries
+            for page_num, page_data in enumerate(md_result):
+                if isinstance(page_data, dict):
+                    # Extract text from dictionary
+                    page_content = page_data.get("text", "")
+                    if page_content and page_content.strip():
+                        doc = Document(
+                            page_content=page_content.strip(),
+                            metadata={
+                                "source_file": pdf_path.name,
+                                "file_path": str(pdf_path),
+                                "page": page_num,
+                                "content_type": "markdown",
+                            },
+                        )
+                        documents.append(doc)
+                elif isinstance(page_data, str):
+                    # Handle case where it's a string
+                    if page_data.strip():
+                        doc = Document(
+                            page_content=page_data.strip(),
+                            metadata={
+                                "source_file": pdf_path.name,
+                                "file_path": str(pdf_path),
+                                "page": page_num,
+                                "content_type": "markdown",
+                            },
+                        )
+                        documents.append(doc)
+        else:
+            # page_chunks=False returns a single string
+            if md_result and md_result.strip():
+                doc = Document(
+                    page_content=md_result.strip(),
+                    metadata={
+                        "source_file": pdf_path.name,
+                        "file_path": str(pdf_path),
+                        "page": 0,
+                        "content_type": "markdown",
+                    },
+                )
+                documents.append(doc)
+
+        return documents
 
     def _split_and_add_documents(self, documents: List[Document]) -> None:
         """Splits documents into chunks and adds them to the vector store.
@@ -202,7 +249,7 @@ class VectorStoreManager:
         Args:
             documents: A list of documents to be split and added.
         """
-        print("Splitting documents into chunks...")
+        print("Splitting markdown documents into chunks...")
         split_documents = self.text_splitter.split_documents(documents)
         print(f"Created {len(split_documents)} document chunks")
 

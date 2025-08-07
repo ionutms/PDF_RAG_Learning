@@ -35,20 +35,31 @@ class Config:
 
     SCRIPT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
     PDF_DIRECTORY = SCRIPT_DIR.joinpath("pdfs")
-    DB_LOCATION = SCRIPT_DIR.joinpath("chroma_langchain_db")
-    METADATA_FILE = SCRIPT_DIR.joinpath("processed_files.json")
+    DB_LOCATION = SCRIPT_DIR.joinpath("chroma_DB/chroma_langchain_db")
+    METADATA_FILE = SCRIPT_DIR.joinpath("chroma_DB/processed_files.json")
 
     # Text processing
-    CHUNK_SIZE = 500
+    CHUNK_SIZE = 1000
     CHUNK_OVERLAP = 200
     RETRIEVAL_K = 20
+
+    # PyMuPDF4LLM settings optimized for datasheets
+    PYMUPDF_EXTRACT_OPTIONS = {
+        "page_chunks": True,
+        "write_images": False,  # Ignore images
+        "embed_images": False,
+        "table_strategy": "lines_strict",  # Best for datasheet tables
+        "margins": (0, 0, 0, 0),  # Include margin text
+        "force_text": True,  # Force text extraction even from complex layouts
+    }
 
     # API keys
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
     # Models
-    LLM_MODEL = "llama-3.3-70b-versatile"
+    # LLM_MODEL = "llama-3.3-70b-versatile"
+    LLM_MODEL = "openai/gpt-oss-120b"
 
     # EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
     # EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L12-v2"
