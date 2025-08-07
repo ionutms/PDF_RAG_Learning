@@ -15,5 +15,23 @@ dependencies = [
     "python-dotenv>=1.1.1",
 ]
 
-[project.optional-dependencies]
-dev = []
+[dependency-groups]
+dev = [
+    "ruff>=0.12.5",
+]
+
+[tool.ruff]
+line-length = 79
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "D"]
+ignore = []
+fixable = ["I001"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

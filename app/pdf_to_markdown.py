@@ -1,16 +1,18 @@
-import pymupdf4llm
+"""A script to convert PDF files to Markdown format."""
+
 import os
 from pathlib import Path
 from typing import Dict, List, Optional
+
 import pymupdf
+import pymupdf4llm
 
 
 class PDFToMarkdownConverter:
-    """
-    A comprehensive PDF to Markdown converter using pymupdf4llm
-    """
+    """A comprehensive PDF to Markdown converter using pymupdf4llm."""
 
     def __init__(self):
+        """Initializes the PDFToMarkdownConverter."""
         self.supported_extensions = [".pdf"]
 
     def convert_pdf_to_markdown(
@@ -22,21 +24,23 @@ class PDFToMarkdownConverter:
         image_path: Optional[str] = None,
         dpi: int = 150,
     ) -> Dict:
-        """
-        Convert a PDF file to markdown format
+        """Convert a PDF file to markdown format.
 
         Args:
-            pdf_path: Path to the input PDF file
-            output_path: Path for output markdown file (optional)
-            page_chunks: If True, return content split by pages
-            write_images: If True, extract and save images
-            image_path: Directory to save extracted images
-            dpi: DPI for image extraction
+            pdf_path: Path to the input PDF file.
+            output_path: Path for output markdown file (optional).
+            page_chunks: If True, return content split by pages.
+            write_images: If True, extract and save images.
+            image_path: Directory to save extracted images.
+            dpi: DPI for image extraction.
 
         Returns:
-            Dictionary containing markdown text and metadata
-        """
+            A dictionary containing markdown text and metadata.
 
+        Raises:
+            FileNotFoundError: If the PDF file is not found.
+            ValueError: If the input file is not a PDF.
+        """
         # Validate input file
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
@@ -96,19 +100,25 @@ class PDFToMarkdownConverter:
     def convert_with_advanced_options(
         self, pdf_path: str, output_path: Optional[str] = None, **kwargs
     ) -> Dict:
-        """
-        Convert PDF with advanced pymupdf4llm options
+        """Convert PDF with advanced pymupdf4llm options.
 
-        Additional kwargs can include:
-        - margins: (left, top, right, bottom) margins to ignore
-        - dpi: Resolution for image extraction
-        - page_chunks: Split by pages
-        - write_images: Extract images
-        - image_path: Path for extracted images
-        - hdr_info: Include header information
-        - show_progress: Show conversion progress
-        """
+        This method provides granular control over the conversion process
+        by passing keyword arguments directly to the
+        `pymupdf4llm.to_markdown` function.
 
+        Args:
+            pdf_path: Path to the input PDF file.
+            output_path: Path for the output markdown file (optional).
+            **kwargs: Arbitrary keyword arguments passed to pymupdf4llm.
+                Common options include `margins`, `dpi`, `page_chunks`,
+                `write_images`, and `image_path`.
+
+        Returns:
+            A dictionary containing the markdown content and metadata.
+
+        Raises:
+            Exception: If the advanced conversion process fails.
+        """
         print(f"Converting with advanced options: {kwargs}")
 
         try:
@@ -133,18 +143,16 @@ class PDFToMarkdownConverter:
     def batch_convert(
         self, input_directory: str, output_directory: str, **kwargs
     ) -> List[Dict]:
-        """
-        Convert multiple PDF files in a directory
+        """Convert multiple PDF files in a directory.
 
         Args:
-            input_directory: Directory containing PDF files
-            output_directory: Directory for output markdown files
-            **kwargs: Additional options for conversion
+            input_directory: Directory containing PDF files.
+            output_directory: Directory for output markdown files.
+            **kwargs: Additional options for conversion.
 
         Returns:
-            List of conversion results
+            A list of conversion results.
         """
-
         input_path = Path(input_directory)
         output_path = Path(output_directory)
 
@@ -185,8 +193,14 @@ class PDFToMarkdownConverter:
         return results
 
     def _get_page_count(self, pdf_path: str) -> int:
-        """Get the number of pages in a PDF file"""
+        """Get the number of pages in a PDF file.
 
+        Args:
+            pdf_path: The path to the PDF file.
+
+        Returns:
+            The number of pages in the PDF file.
+        """
         try:
             with pymupdf.open(pdf_path) as doc:
                 return doc.page_count
@@ -202,7 +216,12 @@ class PDFToMarkdownConverter:
             return 0
 
     def _save_markdown(self, result: Dict, output_path: str):
-        """Save markdown content to file"""
+        """Save markdown content to file.
+
+        Args:
+            result: A dictionary containing the conversion result.
+            output_path: The path to save the markdown file.
+        """
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -218,17 +237,15 @@ class PDFToMarkdownConverter:
             f.write(content)
 
     def preview_conversion(self, pdf_path: str, max_chars: int = 1000) -> str:
-        """
-        Preview the first part of the conversion without saving
+        """Preview the first part of the conversion without saving.
 
         Args:
-            pdf_path: Path to PDF file
-            max_chars: Maximum characters to return in preview
+            pdf_path: Path to PDF file.
+            max_chars: Maximum characters to return in preview.
 
         Returns:
-            Preview of markdown content
+            A preview of the markdown content.
         """
-
         try:
             # Convert just the first few pages for preview
             markdown_text = pymupdf4llm.to_markdown(pdf_path)
@@ -245,9 +262,7 @@ class PDFToMarkdownConverter:
 
 # Example usage and demonstration
 def main():
-    """
-    Demonstration of the PDF to Markdown converter
-    """
+    """Demonstrates the functionality of the PDFToMarkdownConverter."""
     converter = PDFToMarkdownConverter()
 
     # Example 1: Basic conversion
@@ -326,7 +341,8 @@ def main():
 
         successful = [r for r in results if "error" not in r]
         print(
-            f"Batch conversion: {len(successful)} successful, {len(results) - len(successful)} failed"
+            f"Batch conversion: {len(successful)} successful, "
+            f"{len(results) - len(successful)} failed"
         )
 
     except Exception as e:

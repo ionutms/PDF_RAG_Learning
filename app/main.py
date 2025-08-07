@@ -1,5 +1,4 @@
-"""
-Main application for the PDF Question Answering system.
+"""Main application for the PDF Question Answering system.
 
 This module initializes and runs a chatbot that answers questions based on
 a collection of PDF documents. It uses a vector store for document retrieval
@@ -17,8 +16,7 @@ from vector_store import VectorStoreManager
 
 
 class PDFChatBot:
-    """
-    A chatbot that answers questions based on a collection of PDF documents.
+    """A chatbot that answers questions based on PDF documents.
 
     This class encapsulates the logic for retrieving relevant document
     snippets from a vector store and using a large language model to generate
@@ -26,8 +24,7 @@ class PDFChatBot:
     """
 
     def __init__(self) -> None:
-        """
-        Initialize the PDFChatBot.
+        """Initialize the PDFChatBot.
 
         This method sets up the language model, the prompt template, and the
         retriever for the chatbot.
@@ -45,8 +42,7 @@ class PDFChatBot:
         self.retriever = vector_manager.get_retriever()
 
     def format_docs(self, docs: List[Document]) -> str:
-        """
-        Format a list of documents into a single string.
+        """Format a list of documents into a single string.
 
         Args:
             docs: A list of documents to be formatted.
@@ -70,8 +66,7 @@ class PDFChatBot:
         return "\n\n".join(formatted)
 
     def get_unique_sources(self, docs: List[Document]) -> List[str]:
-        """
-        Extract unique source information from a list of documents.
+        """Extract unique source information from a list of documents.
 
         Args:
             docs: A list of documents from which to extract sources.
@@ -91,8 +86,7 @@ class PDFChatBot:
         return sorted(sources)
 
     def answer_question(self, question: str) -> tuple[str, List[str]]:
-        """
-        Answer a question based on the content of the PDF documents.
+        """Answer a question based on the content of the PDF documents.
 
         Args:
             question: The question to be answered.
@@ -113,8 +107,7 @@ class PDFChatBot:
         return result.content, sources
 
     def run_chat_loop(self) -> None:
-        """
-        Run the main chat loop for the PDF Question Answering system.
+        """Run the main chat loop for the PDF Question Answering system.
 
         This method continuously prompts the user for questions and displays
         the answers until the user decides to quit.
