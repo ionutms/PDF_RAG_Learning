@@ -183,3 +183,4 @@ cython_debug/
 *.sqlite3
 *.json
 *.pdf
+/app/markdowns

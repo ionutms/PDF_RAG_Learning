@@ -1,13 +1,13 @@
-"""Manages vector store operations for PDF documents with semantic chunking.
+"""Vector store manager updated to persist markdowns and ingest them.
 
-This module provides the `VectorStoreManager` class, which handles the
-entire lifecycle of PDF documents in the vector store, including embedding,
-semantic chunking, adding, and removing documents using pymupdf4llm for
-markdown extraction and semantic text splitting for intelligent chunking.
+- Converts PDFs to markdown files (no images).
+- Saves markdowns under <project>/markdowns.
+- Vector ingestion is performed from the markdown files.
+- Deletion of PDFs removes associated markdown files.
 """
 
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import List, Set
 
 import pymupdf4llm
 from config import Config, FileInfo
@@ -19,23 +19,10 @@ from semantic_splitter import TableAwareSemanticSplitter
 
 
 class VectorStoreManager:
-    """Handles all vector store operations for PDF documents with chunking.
-
-    This class is responsible for initializing the embedding model and vector
-    store, processing and adding new PDFs using pymupdf4llm for markdown
-    extraction, semantic chunking for intelligent text splitting, removing
-    outdated documents, and providing a retriever for querying.
-
-    Attributes:
-        embeddings: The sentence-transformer model for creating embeddings.
-        vector_store: The ChromaDB instance for storing document vectors.
-        text_splitter: The semantic splitter for dividing documents into
-            contextually coherent chunks.
-        file_manager: An instance of `FileManager` for metadata handling.
-    """
+    """Handles vector store lifecycle and markdown-based ingestion."""
 
     def __init__(self) -> None:
-        """Initializes the VectorStoreManager with semantic chunking."""
+        """Initialize embeddings, vector store, splitter and file manager."""
         self.embeddings = HuggingFaceEndpointEmbeddings(
             model=Config.EMBEDDING_MODEL,
             huggingfacehub_api_token=Config.HUGGINGFACE_API_KEY,
@@ -47,7 +34,6 @@ class VectorStoreManager:
             embedding_function=self.embeddings,
         )
 
-        # Initialize semantic text splitter
         self.text_splitter = TableAwareSemanticSplitter(
             embeddings=self.embeddings,
             similarity_threshold=getattr(
@@ -65,47 +51,45 @@ class VectorStoreManager:
         self.file_manager = FileManager()
 
     def remove_deleted_files(self, deleted_files: Set[str]) -> None:
-        """Removes document chunks from the vector store for deleted files.
-
-        Args:
-            deleted_files: A set of file paths for the deleted files.
-        """
+        """Remove deleted PDFs' chunks and their markdown files."""
         if not deleted_files:
             return
 
         print(
-            f"Removing {len(deleted_files)} deleted files from vector store:"
+            "Removing %d deleted files from vector store and markdown "
+            "directory:" % len(deleted_files)
         )
         for deleted_file in deleted_files:
             filename = Path(deleted_file).name
             print(f"  - {filename}")
 
         all_docs = self.vector_store.get()
+        if all_docs and all_docs.get("metadatas"):
+            ids_to_delete = self._find_ids_by_filenames(
+                all_docs, {Path(f).name for f in deleted_files}
+            )
+            if ids_to_delete:
+                self.vector_store.delete(ids=ids_to_delete)
+                print(
+                    f"Removed {len(ids_to_delete)} chunks from deleted files"
+                )
 
-        if not all_docs or not all_docs["metadatas"]:
-            return
-
-        ids_to_delete = self._find_ids_by_filenames(
-            all_docs, {Path(f).name for f in deleted_files}
-        )
-
-        if ids_to_delete:
-            self.vector_store.delete(ids=ids_to_delete)
-            print(f"Removed {len(ids_to_delete)} chunks from deleted files")
+        # Remove generated markdown files for deleted PDFs
+        for pdf_path_str in deleted_files:
+            stem = Path(pdf_path_str).stem
+            for md in Config.MARKDOWN_DIRECTORY.glob(f"{stem}*.md"):
+                try:
+                    md.unlink()
+                    print(f"Deleted markdown: {md.name}")
+                except Exception:
+                    print(f"Could not delete markdown: {md}")
 
     def remove_old_chunks(self, filename: str) -> None:
-        """Removes all document chunks for a specific file.
-
-        This is used to clear out old versions of a file before adding the
-        updated version.
-
-        Args:
-            filename: The name of the file whose chunks should be removed.
-        """
+        """Remove all vector chunks for the filename and its markdowns."""
         print(f"Removing old chunks for modified file: {filename}")
 
         all_docs = self.vector_store.get()
-        if not all_docs or not all_docs["metadatas"]:
+        if not all_docs or not all_docs.get("metadatas"):
             return
 
         ids_to_delete = self._find_ids_by_filenames(all_docs, {filename})
@@ -114,52 +98,67 @@ class VectorStoreManager:
             self.vector_store.delete(ids=ids_to_delete)
             print(f"Removed {len(ids_to_delete)} old chunks")
 
+        # Also remove old markdowns for this file
+        stem = Path(filename).stem
+        for md in Config.MARKDOWN_DIRECTORY.glob(f"{stem}*.md"):
+            try:
+                md.unlink()
+                print(f"Removed old markdown: {md.name}")
+            except Exception:
+                print(f"Could not remove old markdown: {md}")
+
     def process_and_add_pdfs(
         self,
         pdf_paths: List[Path],
-        processed_files: Dict[str, FileInfo],
+        processed_files: dict[str, FileInfo],
     ) -> None:
-        """Processes and adds a list of PDF files to the vector store.
-
-        This method handles loading, converting to markdown,
-        semantic splitting, and embedding the documents,
-        then updates the tracking metadata.
-
-        Args:
-            pdf_paths: A list of paths to the PDF files to process.
-            processed_files: The dictionary of processed file metadata, which
-                will be updated.
-        """
-        documents = []
-
+        """Process PDFs to markdowns, then split markdowns and add vectors."""
+        # First convert each PDF to markdown file(s)
         for pdf_path in pdf_paths:
             file_key = str(pdf_path)
 
             if file_key in processed_files:
                 self.remove_old_chunks(pdf_path.name)
 
-            print(f"Processing: {pdf_path.name}")
+            print(f"Processing and saving markdown for: {pdf_path.name}")
+            # write markdown(s) to disk
+            self._save_pdf_as_markdown(pdf_path)
 
-            pdf_documents = self._load_pdf_as_markdown(pdf_path)
-            documents.extend(pdf_documents)
-
+            # Update processed_files metadata for the original PDF path
             processed_files[file_key] = self.file_manager.get_file_info(
                 pdf_path
             )
 
-        self._split_and_add_documents(documents)
+        # Load markdown files for all created/updated pdfs
+        markdown_docs: List[Document] = []
+        for md_path in Config.MARKDOWN_DIRECTORY.rglob("*.md"):
+            # read content
+            try:
+                content = md_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            if not content.strip():
+                continue
+
+            doc = Document(
+                page_content=content.strip(),
+                metadata={
+                    "source_file": md_path.name,
+                    "file_path": str(md_path),
+                    "page": 0,
+                    "content_type": "markdown_file",
+                },
+            )
+            markdown_docs.append(doc)
+
+        self._split_and_add_documents(markdown_docs)
 
         self.file_manager.save_processed_files(processed_files)
         print("Documents updated successfully!")
 
     def get_retriever(self):
-        """Returns a retriever for the vector store.
-
-        The retriever is configured to fetch a specific number of documents.
-
-        Returns:
-            A retriever object for querying the vector store.
-        """
+        """Return a retriever for queries."""
         return self.vector_store.as_retriever(
             search_kwargs={"k": Config.RETRIEVAL_K}
         )
@@ -169,16 +168,8 @@ class VectorStoreManager:
         all_docs: dict,
         filenames: Set[str],
     ) -> List[str]:
-        """Finds the internal document IDs associated with filenames.
-
-        Args:
-            all_docs: The dictionary of all documents from the vector store.
-            filenames: A set of filenames to search for.
-
-        Returns:
-            A list of document IDs to be deleted.
-        """
-        ids_to_delete = []
+        """Return internal ids for given filenames."""
+        ids_to_delete: List[str] = []
 
         for i, metadata in enumerate(all_docs["metadatas"]):
             if (
@@ -190,90 +181,61 @@ class VectorStoreManager:
 
         return ids_to_delete
 
-    def _load_pdf_as_markdown(self, pdf_path: Path) -> List[Document]:
-        """Loads a PDF file and converts it to markdown using pymupdf4llm.
+    def _save_pdf_as_markdown(self, pdf_path: Path) -> List[Path]:
+        """Convert a PDF to markdown files and save them in a subfolder.
 
-        Args:
-            pdf_path: The path to the PDF file.
-
-        Returns:
-            A list of `Document` objects, each representing a page with
-            markdown content and metadata.
+        Returns a list of saved markdown Path objects. Images are skipped.
+        Each page becomes a separate markdown file when pymupdf4llm
+        returns page chunks.
         """
-        # Extract markdown from PDF using pymupdf4llm
         md_result = pymupdf4llm.to_markdown(
             str(pdf_path), **Config.PYMUPDF_EXTRACT_OPTIONS
         )
 
-        documents = []
+        saved: List[Path] = []
 
-        # Handle both list (page_chunks=True) and string (page_chunks=False)
+        stem = pdf_path.stem
+        pdf_md_dir = Config.MARKDOWN_DIRECTORY.joinpath(stem)
+        pdf_md_dir.mkdir(parents=True, exist_ok=True)
+
         if isinstance(md_result, list):
-            # page_chunks=True returns a list of page dictionaries
-            for page_num, page_data in enumerate(md_result):
+            for page_num, page_data in enumerate(md_result, start=1):
                 if isinstance(page_data, dict):
-                    # Extract text from dictionary
                     page_content = page_data.get("text", "")
-                    if page_content and page_content.strip():
-                        doc = Document(
-                            page_content=page_content.strip(),
-                            metadata={
-                                "source_file": pdf_path.name,
-                                "file_path": str(pdf_path),
-                                "page": page_num,
-                                "content_type": "markdown",
-                            },
-                        )
-                        documents.append(doc)
-                elif isinstance(page_data, str):
-                    # Handle case where it's a string
-                    if page_data.strip():
-                        doc = Document(
-                            page_content=page_data.strip(),
-                            metadata={
-                                "source_file": pdf_path.name,
-                                "file_path": str(pdf_path),
-                                "page": page_num,
-                                "content_type": "markdown",
-                            },
-                        )
-                        documents.append(doc)
-        elif isinstance(md_result, str):
-            # page_chunks=False returns a single string
-            if md_result and md_result.strip():
-                doc = Document(
-                    page_content=md_result.strip(),
-                    metadata={
-                        "source_file": pdf_path.name,
-                        "file_path": str(pdf_path),
-                        "page": 0,
-                        "content_type": "markdown",
-                    },
-                )
-                documents.append(doc)
+                else:
+                    page_content = page_data
 
-        return documents
+                if not page_content or not page_content.strip():
+                    continue
+
+                md_name = f"{stem}_page_{page_num}.md"
+                md_path = pdf_md_dir.joinpath(md_name)
+                md_path.write_text(page_content.strip(), encoding="utf-8")
+                saved.append(md_path)
+
+        elif isinstance(md_result, str):
+            if md_result.strip():
+                md_name = f"{stem}_page_1.md"
+                md_path = pdf_md_dir.joinpath(md_name)
+                md_path.write_text(md_result.strip(), encoding="utf-8")
+                saved.append(md_path)
+
+        return saved
 
     def _split_and_add_documents(self, documents: List[Document]) -> None:
-        """Splits documents into chunks and adds them to the vector store."""
-        print(
-            "Splitting markdown documents into table-aware semantic chunks..."
-        )
+        """Split documents into chunks and add them to the vector store."""
+        print("Splitting markdown documents into table-aware chunks...")
 
-        # Use table-aware semantic splitter
         split_documents = self.text_splitter.split_documents(documents)
 
-        # Enhanced metadata with table information
         for doc in split_documents:
             doc.metadata["chunking_strategy"] = "table_aware_semantic"
             doc.metadata["similarity_threshold"] = (
                 self.text_splitter.similarity_threshold
             )
-            # Table metadata is already added by the splitter
 
-        print(f"Created {len(split_documents)} table-aware document chunks")
+        print(f"Created {len(split_documents)} document chunks")
 
-        # Show statistics about chunk types and sizes
         chunk_sizes = [len(doc.page_content) for doc in split_documents]
         table_chunks = [
             doc
@@ -295,4 +257,5 @@ class VectorStoreManager:
             )
 
         print("Adding new/updated documents to vector store...")
-        self.vector_store.add_documents(documents=split_documents)
+        if split_documents:
+            self.vector_store.add_documents(documents=split_documents)

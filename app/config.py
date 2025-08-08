@@ -1,10 +1,4 @@
-"""Configuration settings for the PDF RAG system with semantic chunking.
-
-This module defines configuration constants, file paths, and model settings
-for the PDF question-answering application. It also includes a utility
-function to create necessary directories and new parameters for semantic
-chunking.
-"""
+"""Configuration settings for the PDF RAG system with semantic chunking."""
 
 import os
 from pathlib import Path
@@ -16,29 +10,22 @@ load_dotenv()
 
 
 class FileInfo(TypedDict):
-    """A dictionary to hold file metadata for tracking changes.
-
-    Attributes:
-        modified_time: The last modification time of the file.
-        size: The size of the file in bytes.
-    """
+    """File metadata for tracking processed files."""
 
     modified_time: float
     size: int
 
 
 class Config:
-    """Stores configuration constants for the application.
-
-    This class centralizes all configuration variables, making them easy to
-    manage and access throughout the application.
-    """
+    """Holds application-wide configuration constants."""
 
     SCRIPT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
     PDF_DIRECTORY = SCRIPT_DIR.joinpath("pdfs")
+    MARKDOWN_DIRECTORY = SCRIPT_DIR.joinpath("markdowns")
     DB_LOCATION = SCRIPT_DIR.joinpath("chroma_DB/chroma_langchain_db")
     METADATA_FILE = SCRIPT_DIR.joinpath("chroma_DB/processed_files.json")
 
+    # Chunking & retrieval
     CHUNK_SIZE = 1500
     RETRIEVAL_K = 30
 
@@ -46,6 +33,7 @@ class Config:
     MIN_CHUNK_SIZE = 200
     SENTENCE_OVERLAP = 2
 
+    # pymupdf4llm extraction options: no images, preserve tables
     PYMUPDF_EXTRACT_OPTIONS = {
         "page_chunks": True,
         "write_images": False,
@@ -53,8 +41,6 @@ class Config:
         "table_strategy": "lines_strict",
         "margins": (0, 0, 0, 0),
         "force_text": True,
-        "extract_tables": True,
-        "table_tolerance": 1,
     }
 
     TABLE_CHUNK_MIN_SIZE = 100
@@ -66,27 +52,19 @@ class Config:
 
     # Models
     LLM_MODEL = "llama-3.3-70b-versatile"
-    # LLM_MODEL = "openai/gpt-oss-120b"
-
-    # EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-    # EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L12-v2"
     EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
 
     @classmethod
     def create_directories(cls) -> None:
-        """Creates necessary application directories if they don't exist.
-
-        This function ensures that the directories for PDFs, the vector
-        database, and metadata files are present before the application
-        attempts to use them.
-        """
+        """Create filesystem directories required by the app."""
         cls.PDF_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        cls.MARKDOWN_DIRECTORY.mkdir(parents=True, exist_ok=True)
         cls.DB_LOCATION.parent.mkdir(parents=True, exist_ok=True)
         cls.METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def print_semantic_config(cls) -> None:
-        """Print current semantic chunking configuration for debugging."""
+        """Print current semantic chunking configuration."""
         print("=== Semantic Chunking Configuration ===")
         print(f"Similarity Threshold: {cls.SEMANTIC_SIMILARITY_THRESHOLD}")
         print(f"Max Chunk Size: {cls.CHUNK_SIZE}")
@@ -96,7 +74,6 @@ class Config:
         print("=" * 40)
 
 
-# Chat template
 CHAT_TEMPLATE = """
 You are an expert assistant that answers questions based on the provided
 PDF documents.
