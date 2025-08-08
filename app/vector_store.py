@@ -1,11 +1,13 @@
 """Vector store manager updated to persist markdowns and ingest them.
 
-- Converts PDFs to markdown files (no images).
-- Saves markdowns under <project>/markdowns.
-- Vector ingestion is performed from the markdown files.
+- Converts PDFs to markdown files (no images) into per-PDF subfolders.
+- Vector ingestion is performed from all markdown files recursively.
 - Deletion of PDFs removes associated markdown files.
+- Extracts bolded markdown phrases (**...**) into chunk metadata for
+filtering.
 """
 
+import re
 from pathlib import Path
 from typing import List, Set
 
@@ -16,6 +18,13 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from semantic_splitter import TableAwareSemanticSplitter
+
+
+def extract_bolded_terms(markdown_text: str) -> list[str]:
+    """Extract bolded phrases (**...**) from markdown content."""
+    return [
+        match.strip() for match in re.findall(r"\*\*(.+?)\*\*", markdown_text)
+    ]
 
 
 class VectorStoreManager:
@@ -77,12 +86,18 @@ class VectorStoreManager:
         # Remove generated markdown files for deleted PDFs
         for pdf_path_str in deleted_files:
             stem = Path(pdf_path_str).stem
-            for md in Config.MARKDOWN_DIRECTORY.glob(f"{stem}*.md"):
+            pdf_md_dir = Config.MARKDOWN_DIRECTORY.joinpath(stem)
+            if pdf_md_dir.exists():
+                for md in pdf_md_dir.glob("*.md"):
+                    try:
+                        md.unlink()
+                        print(f"Deleted markdown: {md.name}")
+                    except Exception:
+                        print(f"Could not delete markdown: {md}")
                 try:
-                    md.unlink()
-                    print(f"Deleted markdown: {md.name}")
+                    pdf_md_dir.rmdir()
                 except Exception:
-                    print(f"Could not delete markdown: {md}")
+                    pass
 
     def remove_old_chunks(self, filename: str) -> None:
         """Remove all vector chunks for the filename and its markdowns."""
@@ -100,12 +115,18 @@ class VectorStoreManager:
 
         # Also remove old markdowns for this file
         stem = Path(filename).stem
-        for md in Config.MARKDOWN_DIRECTORY.glob(f"{stem}*.md"):
+        pdf_md_dir = Config.MARKDOWN_DIRECTORY.joinpath(stem)
+        if pdf_md_dir.exists():
+            for md in pdf_md_dir.glob("*.md"):
+                try:
+                    md.unlink()
+                    print(f"Removed old markdown: {md.name}")
+                except Exception:
+                    print(f"Could not remove old markdown: {md}")
             try:
-                md.unlink()
-                print(f"Removed old markdown: {md.name}")
+                pdf_md_dir.rmdir()
             except Exception:
-                print(f"Could not remove old markdown: {md}")
+                pass
 
     def process_and_add_pdfs(
         self,
@@ -113,7 +134,6 @@ class VectorStoreManager:
         processed_files: dict[str, FileInfo],
     ) -> None:
         """Process PDFs to markdowns, then split markdowns and add vectors."""
-        # First convert each PDF to markdown file(s)
         for pdf_path in pdf_paths:
             file_key = str(pdf_path)
 
@@ -121,18 +141,14 @@ class VectorStoreManager:
                 self.remove_old_chunks(pdf_path.name)
 
             print(f"Processing and saving markdown for: {pdf_path.name}")
-            # write markdown(s) to disk
             self._save_pdf_as_markdown(pdf_path)
 
-            # Update processed_files metadata for the original PDF path
             processed_files[file_key] = self.file_manager.get_file_info(
                 pdf_path
             )
 
-        # Load markdown files for all created/updated pdfs
         markdown_docs: List[Document] = []
         for md_path in Config.MARKDOWN_DIRECTORY.rglob("*.md"):
-            # read content
             try:
                 content = md_path.read_text(encoding="utf-8")
             except Exception:
@@ -141,6 +157,8 @@ class VectorStoreManager:
             if not content.strip():
                 continue
 
+            bolded_terms = extract_bolded_terms(content)
+
             doc = Document(
                 page_content=content.strip(),
                 metadata={
@@ -148,20 +166,29 @@ class VectorStoreManager:
                     "file_path": str(md_path),
                     "page": 0,
                     "content_type": "markdown_file",
+                    "bolded_terms": bolded_terms,
                 },
             )
             markdown_docs.append(doc)
 
         self._split_and_add_documents(markdown_docs)
-
         self.file_manager.save_processed_files(processed_files)
         print("Documents updated successfully!")
 
-    def get_retriever(self):
-        """Return a retriever for queries."""
-        return self.vector_store.as_retriever(
-            search_kwargs={"k": Config.RETRIEVAL_K}
-        )
+    def get_retriever(self, query: str = ""):
+        """Return a retriever, auto-filtering by nearest_bolded if matched."""
+        matched_bolded = ""
+        if query:
+            matched_bolded = self._match_bolded_in_query(query)
+
+        search_kwargs = {"k": Config.RETRIEVAL_K}
+        if matched_bolded:
+            search_kwargs["filter"] = {"nearest_bolded": matched_bolded}
+            print(
+                f"[Retriever] Auto-filtering to bolded term: {matched_bolded}"
+            )
+
+        return self.vector_store.as_retriever(search_kwargs=search_kwargs)
 
     def _find_ids_by_filenames(
         self,
@@ -182,12 +209,7 @@ class VectorStoreManager:
         return ids_to_delete
 
     def _save_pdf_as_markdown(self, pdf_path: Path) -> List[Path]:
-        """Convert a PDF to markdown files and save them in a subfolder.
-
-        Returns a list of saved markdown Path objects. Images are skipped.
-        Each page becomes a separate markdown file when pymupdf4llm
-        returns page chunks.
-        """
+        """Convert a PDF to markdown files in a subfolder."""
         md_result = pymupdf4llm.to_markdown(
             str(pdf_path), **Config.PYMUPDF_EXTRACT_OPTIONS
         )
@@ -234,6 +256,21 @@ class VectorStoreManager:
                 self.text_splitter.similarity_threshold
             )
 
+            source_bolded = doc.metadata.get("bolded_terms", [])
+            if isinstance(source_bolded, list):
+                nearest = self._nearest_bolded(
+                    doc.page_content, source_bolded
+                )
+            else:
+                nearest = ""
+
+            if nearest:
+                doc.metadata["nearest_bolded"] = nearest
+
+            # Remove bolded_terms list to avoid Chroma error
+            if "bolded_terms" in doc.metadata:
+                del doc.metadata["bolded_terms"]
+
         print(f"Created {len(split_documents)} document chunks")
 
         chunk_sizes = [len(doc.page_content) for doc in split_documents]
@@ -259,3 +296,28 @@ class VectorStoreManager:
         print("Adding new/updated documents to vector store...")
         if split_documents:
             self.vector_store.add_documents(documents=split_documents)
+
+    def _nearest_bolded(self, content: str, bolded_terms: list[str]) -> str:
+        """Find the last bolded term that appears before the chunk content."""
+        if not bolded_terms:
+            return ""
+        for term in reversed(bolded_terms):
+            if term in content:
+                return term
+        return bolded_terms[-1]
+
+    def _match_bolded_in_query(self, query: str) -> str:
+        """Check if the query contains a known bolded term."""
+        all_docs = self.vector_store.get()
+        if not all_docs or not all_docs.get("metadatas"):
+            return ""
+
+        bolded_set = set()
+        for meta in all_docs["metadatas"]:
+            if meta and "nearest_bolded" in meta:
+                bolded_set.add(meta["nearest_bolded"])
+
+        for term in bolded_set:
+            if term.lower() in query.lower():
+                return term
+        return ""
