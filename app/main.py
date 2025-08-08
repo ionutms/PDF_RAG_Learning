@@ -198,8 +198,8 @@ class PDFChatBot:
         while True:
             print("\n" + "-" * 80)
             question = input(
-                f"{Fore.GREEN}Ask your question about the PDFs "
-                f"(q to quit): {Style.RESET_ALL}"
+                f"{Fore.YELLOW}Ask your question about the PDFs "
+                f"(q to quit): {Style.RESET_ALL}\n"
             )
             print()
 
@@ -222,19 +222,18 @@ class PDFChatBot:
             answer, sources, docs = self.answer_question(question)
             last_docs = docs
 
-            print(f"{Fore.BLUE}Answer:{Style.RESET_ALL}")
-            print(answer)
+            print(f"{Fore.YELLOW}Answer:{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}{answer}{Style.RESET_ALL}")
 
-            if sources:
-                print(f"\n{Fore.BLUE}Sources:{Style.RESET_ALL}")
-                for source in sources:
-                    print(f"{Fore.CYAN}{source}{Style.RESET_ALL}")
+            # if sources:
+            #     print(f"\n{Fore.YELLOW}Sources:{Style.RESET_ALL}")
+            #     for source in sources:
+            #         print(f"{Fore.CYAN}{source}{Style.RESET_ALL}")
 
             # Show retrieved context in color
-            print(f"\n{Fore.BLUE}Retrieved Context:{Style.RESET_ALL}")
-            print(self.format_docs_colored(docs))
-
-            print("\n" + "-" * 80)
+            # print(f"\n{Fore.YELLOW}Retrieved Context:{Style.RESET_ALL}")
+            # print(self.format_docs_colored(docs))
+            # print("\n" + "-" * 80)
 
 
 if __name__ == "__main__":

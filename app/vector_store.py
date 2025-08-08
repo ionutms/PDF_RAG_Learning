@@ -15,7 +15,7 @@ from file_manager import FileManager
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
-from semantic_splitter import SemanticTextSplitter
+from semantic_splitter import TableAwareSemanticSplitter
 
 
 class VectorStoreManager:
@@ -48,7 +48,7 @@ class VectorStoreManager:
         )
 
         # Initialize semantic text splitter
-        self.text_splitter = SemanticTextSplitter(
+        self.text_splitter = TableAwareSemanticSplitter(
             embeddings=self.embeddings,
             similarity_threshold=getattr(
                 Config, "SEMANTIC_SIMILARITY_THRESHOLD", 0.7
@@ -56,6 +56,10 @@ class VectorStoreManager:
             min_chunk_size=getattr(Config, "MIN_CHUNK_SIZE", 200),
             max_chunk_size=Config.CHUNK_SIZE,
             sentence_overlap=getattr(Config, "SENTENCE_OVERLAP", 1),
+            table_preserve_structure=getattr(
+                Config, "TABLE_PRESERVE_STRUCTURE", True
+            ),
+            table_min_chunk_size=getattr(Config, "TABLE_CHUNK_MIN_SIZE", 100),
         )
 
         self.file_manager = FileManager()
@@ -234,7 +238,7 @@ class VectorStoreManager:
                             },
                         )
                         documents.append(doc)
-        else:
+        elif isinstance(md_result, str):
             # page_chunks=False returns a single string
             if md_result and md_result.strip():
                 doc = Document(
@@ -251,27 +255,32 @@ class VectorStoreManager:
         return documents
 
     def _split_and_add_documents(self, documents: List[Document]) -> None:
-        """Splits documents into chunks and adds them to the vector store.
+        """Splits documents into chunks and adds them to the vector store."""
+        print(
+            "Splitting markdown documents into table-aware semantic chunks..."
+        )
 
-        Args:
-            documents: A list of documents to be split and added.
-        """
-        print("Splitting markdown documents into semantic chunks...")
-
-        # Use semantic splitter instead of fixed-size splitter
+        # Use table-aware semantic splitter
         split_documents = self.text_splitter.split_documents(documents)
 
-        # Add chunking strategy info to metadata
+        # Enhanced metadata with table information
         for doc in split_documents:
-            doc.metadata["chunking_strategy"] = "semantic"
+            doc.metadata["chunking_strategy"] = "table_aware_semantic"
             doc.metadata["similarity_threshold"] = (
                 self.text_splitter.similarity_threshold
             )
+            # Table metadata is already added by the splitter
 
-        print(f"Created {len(split_documents)} semantic document chunks")
+        print(f"Created {len(split_documents)} table-aware document chunks")
 
-        # Show some statistics about chunk sizes
+        # Show statistics about chunk types and sizes
         chunk_sizes = [len(doc.page_content) for doc in split_documents]
+        table_chunks = [
+            doc
+            for doc in split_documents
+            if doc.metadata.get("contains_table", False)
+        ]
+
         if chunk_sizes:
             avg_size = sum(chunk_sizes) / len(chunk_sizes)
             min_size = min(chunk_sizes)
@@ -279,6 +288,10 @@ class VectorStoreManager:
             print(
                 "Chunk size stats - "
                 f"Min: {min_size}, Max: {max_size}, Avg: {avg_size:.0f}"
+            )
+            print(
+                "Table-containing chunks: "
+                f"{len(table_chunks)}/{len(split_documents)}"
             )
 
         print("Adding new/updated documents to vector store...")

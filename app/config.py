@@ -39,43 +39,34 @@ class Config:
     DB_LOCATION = SCRIPT_DIR.joinpath("chroma_DB/chroma_langchain_db")
     METADATA_FILE = SCRIPT_DIR.joinpath("chroma_DB/processed_files.json")
 
-    # Text processing - Standard chunking
-    CHUNK_SIZE = 1500  # Increased for semantic chunking as max size
-    CHUNK_OVERLAP = (
-        200  # Kept for compatibility but not used in semantic chunking
-    )
-    RETRIEVAL_K = 20
+    CHUNK_SIZE = 1500
+    RETRIEVAL_K = 30
 
-    # Semantic chunking parameters
-    SEMANTIC_SIMILARITY_THRESHOLD = (
-        0.7  # Higher = more strict semantic grouping (0.0-1.0)
-    )
-    MIN_CHUNK_SIZE = 200  # Minimum chunk size in characters
-    SENTENCE_OVERLAP = 1  # Number of sentences to overlap between chunks
+    SEMANTIC_SIMILARITY_THRESHOLD = 0.9
+    MIN_CHUNK_SIZE = 200
+    SENTENCE_OVERLAP = 2
 
-    # Alternative thresholds you can experiment with:
-    # More strict - creates smaller, more focused chunks
-    # SEMANTIC_SIMILARITY_THRESHOLD = 0.75
-    # Less strict - creates larger, broader chunks
-    # SEMANTIC_SIMILARITY_THRESHOLD = 0.65
-
-    # PyMuPDF4LLM settings optimized for datasheets
     PYMUPDF_EXTRACT_OPTIONS = {
         "page_chunks": True,
-        "write_images": False,  # Ignore images
+        "write_images": False,
         "embed_images": False,
-        "table_strategy": "lines_strict",  # Best for datasheet tables
-        "margins": (0, 0, 0, 0),  # Include margin text
-        "force_text": True,  # Force text extraction even from complex layouts
+        "table_strategy": "lines_strict",
+        "margins": (0, 0, 0, 0),
+        "force_text": True,
+        "extract_tables": True,
+        "table_tolerance": 1,
     }
+
+    TABLE_CHUNK_MIN_SIZE = 100
+    TABLE_PRESERVE_STRUCTURE = True
 
     # API keys
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
     # Models
-    # LLM_MODEL = "llama-3.3-70b-versatile"
-    LLM_MODEL = "openai/gpt-oss-120b"
+    LLM_MODEL = "llama-3.3-70b-versatile"
+    # LLM_MODEL = "openai/gpt-oss-120b"
 
     # EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
     # EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L12-v2"
