@@ -47,11 +47,9 @@ class Config:
     TABLE_PRESERVE_STRUCTURE = True
 
     # API keys
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
     # Models
-    LLM_MODEL = "llama-3.3-70b-versatile"
     EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
 
     @classmethod
@@ -72,16 +70,3 @@ class Config:
         print(f"Sentence Overlap: {cls.SENTENCE_OVERLAP}")
         print(f"Embedding Model: {cls.EMBEDDING_MODEL}")
         print("=" * 40)
-
-
-CHAT_TEMPLATE = """
-You are an expert assistant that answers questions based on the provided
-PDF documents.
-
-Here are relevant excerpts from the documents: {context}
-
-Question: {question}
-
-Please provide a comprehensive answer based on the context above.
-If the answer cannot be found in the provided context, please say so.
-"""
